@@ -1,0 +1,549 @@
+---
+title: "HW1"
+author: "Nikhil Cherukuri, Daniel fu, Grace Olonade & Kevin Wolf"
+date: "10/29/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(tidyverse)
+library(moments)
+library(e1071)
+library(broom)
+library(ggplot2)
+
+adult<-read.csv('C:/Users/chenl/OneDrive - Southern Methodist University/DATA Mining/Project 1 xxxx/adult.csv')
+
+```
+
+#Part 1 Basic Stats
+#Q1 
+```{r}
+colnames(adult)<- c('age','workclass','fnlwgt','education','education_num', 'marital_status', 'occupation', 'relationship', 'race','sex','capital_gain','capital_loss','hours_per_week', 'native_country','income' )
+
+adult$fnlwgt<- adult$fnlwgt/10000 
+colnames(adult)[3]<-c('modified_fnlwgt')
+adult<- as.data.frame(lapply(adult,rep,adult$modified_fnlwgt))
+
+#summary(adult)
+#(adult)
+
+DIM<- data.frame(unlist( dim(adult)))
+colnames(DIM) <- c("Count")
+rownames(DIM)<-c('Obervations','Variables')
+DIM
+```
+#Q2 Produce a table of variables showing their types
+```{r}
+data_type <- data.frame(unlist(sapply(adult,class)))
+colnames(data_type)[1] <- "Variable Type"
+data_type  
+```
+
+#q3 Which numeric variables should be treated as categorical?
+```{r}
+uq<-unique(adult$education_num)
+length(uq)
+#since it has only 16 groups, we treat education_num as categorical
+adult$education_num<- as.character(adult$education_num)
+str(adult)
+```
+
+#Q4 For numeric variables, produce a table of statistics including missing values, min, max, median, mean, standard deviation, skewness and kurtosis.
+```{r}
+NUM<- c('age',"capital_gain", "capital_loss", "hours_per_week")
+
+stats<- function(x){
+  mis<- sum(is.na(x))
+  min<- min(x, na.rm = TRUE)
+  max<- max(x, na.rm = TRUE)
+  median<- median(x, na.rm = TRUE)
+  mean<- mean(x, na.rm = TRUE)
+  std<- sd(x, na.rm = TRUE)
+  skew<- skewness(x, na.rm = TRUE)
+  kurt<- kurtosis(x, na.rm = TRUE)
+  SR<- data.frame(mis,min,max,median,mean,std,skew,kurt)
+}
+#create a Table
+TabStat<- data.frame(matrix(nrow = 0,ncol = 8))
+colnames(TabStat)<- c('mis','min', 'max', 'median', 'mean', 'std', 'skew', 'kurt') 
+
+for(i in NUM) {
+  Alt<- stats(adult[ , i])
+  TabStat <- TabStat %>%
+  add_row(Alt)
+} 
+
+
+
+rownames(TabStat)<-c('age', "capital_gain", "capital_loss", "hours_per_week")
+
+TabStat
+```
+
+#Q5  How many outliers are present in each numeric variable? Set them to missing. 
+```{r}
+outliers <- c()
+for (i in NUM) {
+  outliers <- c(outliers,length(boxplot.stats(adult[,i])$out))
+}
+print(outliers)
+
+# The number of outliers for each variable
+Q5<-data.frame(NUM,outliers) 
+print(Q5)
+
+#Replace outliers with NA
+#for (i in NUM) {
+#  adult[which(adult[,i] %in% boxplot.stats(adult[,i])$out),i] <- NA
+#}
+#summary(adult)
+
+##in order to impute the outliers, we commented this step to change the outlliers to NA
+```
+
+#Q6 Count the unique values of each categorical variable, including missing values. Are there any unusual values in any of the categorical variables?
+```{r}
+#Since we redefine the education_num, we need to run the data_type agian to include hte education_num for the following calculation
+
+data_type <- data.frame(unlist(sapply(adult,class)))
+colnames(data_type)[1] <- "Variable Type"
+data_type  
+
+#########################################################
+cha <- c()
+for (i in rownames(data_type)) {
+  if (data_type[i,] == "character") {
+    cha <- c(cha, i)} 
+  else {cha}
+}
+
+# Categorical Variables
+print(cha) 
+
+cnt <- c()
+for (i in cha) {
+  new_cnt <- length(unique(adult[,i]))
+  cnt <- c(cnt, new_cnt)
+}
+
+all_char <- data.frame(var = cha, cnt_uni = cnt)
+
+all_char # The number of unique values of each categorical variable
+
+
+lapply(adult[,cha],unique)
+```
+
+#Q7 Impute the missing values. Be sure to explain how you did that in your presentation.
+
+
+```{r}
+# Do not change outliers of Age to missing value: For the box.stat, it automatically set the outliers in hte group'age', but in the real life, age from 0 to 99 is reasonable
+
+
+#hours_per_week:
+#since the outliers detected by the 'boxplot.stats' contains over 162095 records, given the 601547 observations that the original dataset provides, the outliers detected occupies more than 27% of the original volume. Thus we want to manually replace the outliers, details see below:
+
+#The outliers range is between[1,17] & [79,99], these numbers are somehow not distinct in real working scenarios, however, through boxplot we can say that these outliers presented a flat distribution compared to the box itsself, which will do harm to the models we are about to build, thus, we replaced outliers in [1,17] with the average of [1,17] and [79,99] with the average of [79,99]
+#MM<-boxplot(adult$hours_per_week)$out
+
+adult$hours_per_week[adult$hours_per_week > 78] <- 89
+adult$hours_per_week[adult$hours_per_week < 17] <- 9
+
+summary(adult$hours_per_week)
+
+# education_num: 
+# We find out there is a collinearity between education and education_num, so we use education instead of education_num in the model. We do not do anything on missings of education_num
+
+
+#Capital-gain and Capital-loss: we decide to create a binary variable, capital-gain (Y/N) = capital-gain - capital-loss. We use the binary variable instead of the other two in the model
+adult$capital_gain <- (adult$capital_gain - adult$capital_loss) > 0
+colnames(adult)[11]<- 'capital_gain_YN'
+
+```
+#Q8
+```{r}
+str(adult)
+NUM<- c('age',"modified_fnlwgt","hours_per_week")
+for (i in NUM) {
+  hist(adult[,i], main = paste("Histogram of" , i),xlab = i)
+}
+
+
+```
+#Q9 Total Count
+```{r}
+ggplot(adult, aes(x = workclass,fill = income)) + geom_bar()+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+
+ggplot(adult, aes(x = education,fill = income)) + geom_bar()+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+ggplot(adult, aes(x = marital_status,fill = income)) + geom_bar()+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+ggplot(adult, aes(x = occupation,fill = income)) + geom_bar()+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+ggplot(adult, aes(x = relationship,fill = income)) + geom_bar()
+ggplot(adult, aes(x = race,fill = income)) + geom_bar()
+ggplot(adult, aes(x = sex,fill = income)) + geom_bar()
+
+ggplot(adult, aes(x = native_country,fill = income)) + geom_bar()+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+ggplot(adult, aes(x = native_country,fill = income)) + geom_bar()+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+
+ggplot(adult, aes(x = income,fill = income)) + geom_bar()
+```
+#Q9 Propotion of categorical total
+```{r}
+ggplot(adult, aes(x = workclass,fill = income)) + geom_bar(position="fill")+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+#adult$education <- factor(adult$education,levels(adult$education)[c(14, 4:7, 1:3, 12, 15, 8:9, 16, 10, 13, 11)])
+#levels(adult$education)
+ggplot(adult, aes(x = education,fill = income)) + geom_bar(position="fill")+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+ggplot(adult, aes(x = marital_status,fill = income)) + geom_bar(position="fill")+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+ggplot(adult, aes(x = occupation,fill = income)) + geom_bar(position="fill")+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+ggplot(adult, aes(x = relationship,fill = income)) + geom_bar(position="fill")
+ggplot(adult, aes(x = race,fill = income)) + geom_bar(position="fill")
+ggplot(adult, aes(x = sex,fill = income)) + geom_bar(position="fill")
+
+
+ggplot(adult, aes(x = native_country,fill = income)) + geom_bar(position="fill")+theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+
+ggplot(adult, aes(x = income,fill = income)) + geom_bar()
+```
+
+
+
+#Extra Plots For EDA 
+```{r}
+#foreignPeople
+foreignborn <- adult[adult$native_country != 'United-States', ]
+
+ggplot(foreignborn, 
+       aes(x = native_country, 
+           fill = income)) + 
+   geom_bar(position = "fill") +
+coord_flip()+
+labs(y = "Proportion")
+#It seems like immigrants from Yugoslavia, Taiwan, Japan, Iran, France, Canada, and Cambodia make more than immigrants from other countries. Looking at these countries, one can notice that many of these were developed countries at the time of the census. 
+#ExplannatonS: Is it because immigrants from these generally more developed countries had more access to educational institutions so they received the training necessary to pursue jobs in America that required more 'skills' and thus paid more?
+######################################################
+ggplot(foreignborn, 
+       aes(x = native_country, 
+           fill = workclass)) + 
+   geom_bar(position = "fill") +
+coord_flip()+
+labs(y = "Proportion")
+
+
+#We can note here that, indeed, immigrants coming from different coutries seem to go into different types of jobs. For instance, one might note that a lot of immigrants from Greece go to work as self employed people not incorporated. Moreover, it appeaars that more immigrants from India, Taiwan, and China work for state governments.
+
+
+#######################
+ggplot(foreignborn, 
+       aes(x = workclass, 
+           fill = income)) + 
+   geom_bar(position = "fill") +
+coord_flip()+
+labs(y = "Proportion")
+
+#Self-employed inc and federal govt workers seem to be likeliest to make over 50k.
+
+
+# Education
+
+
+ggplot(adult, aes(x = education, fill = income)) + geom_bar(position="fill") + theme(axis.text.x = element_text(angle = 90)) + ggtitle("Education")
+```
+
+
+
+#Data preparation
+```{r}
+for (i in cha){
+  adult[,i]<-as.factor(adult[,i])
+}
+str(adult)
+```
+```{r}
+library(dplyr)
+new_adult<-adult %>% select(-modified_fnlwgt,-education_num,-capital_loss)
+head(new_adult)
+str(new_adult)
+new_adult[,'capital_gain_YN']<-as.factor(new_adult[,'capital_gain_YN'])
+```
+
+#Partition Data
+```{r}
+library(e1071)
+set.seed(1)
+Trows <- sample(1:nrow(new_adult),size=0.7*nrow(new_adult)) # Use 70% 30% data set as training set, test set respectively
+TRAIN <- new_adult[Trows,]
+TEST <- new_adult[-Trows,]
+```
+
+
+#navie-bayes
+```{r}
+#Q10.1 Build a model to predict income > $50K using naïve Bayes. Randomly partition the data into a training set (70%) and a validation set (30%).
+
+NBmodel<- naiveBayes(income ~ ., data = TRAIN)
+
+#NB<- predict(NBmodel, newdata= TEST, type='raw')
+print(NBmodel)
+
+
+```
+
+```{r}
+
+#10.2 Score the validation data (predict) using the model. Produce a confusion table and an ROC curve for the scored validation data.
+library(pROC)
+NB.pred <- predict(NBmodel, newdata= TEST, type='raw')[,2]
+roc(TEST$income,NB.pred)
+plot(roc(TEST$income,NB.pred ),main= 'Navie-Bayes')
+A1<- auc(roc(TEST$income,NB.pred))
+```
+
+
+```{r}
+# 10.3 From the confusion table calculate the following metrics: accuracy, misclassification rate, true positive rate, false positive rate, specificity, precision, and prevalence.
+
+#Get predictions from NB model 
+NBpredic <- predict(NBmodel, newdata= TEST) 
+#Confusion matrix
+library(caret)
+cmNB <- confusionMatrix(NBpredic,TEST$income)
+cmNB
+str(cmNB)
+
+CFMetricsNB<- data.frame(matrix(nrow=7,ncol=1))
+rownames(CFMetricsNB)<- c('accuracy', 'misclassification rate', 'true positive rate', 'false positive rate', 'specificity', 'precision', 'prevalence')
+
+#cm$overall
+CFMetricsNB[1,1]<- round(cmNB$overall[1],5) #cm$overall
+CFMetricsNB[2,1]<- 1-CFMetricsNB[1,1] #'misclassification rate'
+#tpr = tp / (tp + fn)
+#fpr = fp / (fp + tn)
+tp<- cmNB$table[1,1]
+fn<- cmNB$table[1,2]
+fp<- cmNB$table[2,1]
+tn<- cmNB$table[2,2]
+CFMetricsNB[3,1]<- tp / (tp + fn) #tpr
+CFMetricsNB[4,1]<- fp / (fp + tn) #fpr
+
+CFMetricsNB[5,1]<- cmNB$byClass[2] #Specificity
+CFMetricsNB[6,1]<- cmNB$byClass[5] #precision
+CFMetricsNB[7,1]<- cmNB$byClass[8] #prevalence
+
+colnames(CFMetricsNB)<- c('Metrics')
+CFMetricsNB
+```
+
+#Logit Regression
+```{r}
+#Q11.1 Build a model to predict income > $50K using logistic regression. Randomly partition the data into a training set (70%) and a validation set (30%).
+
+# use glm() (general linear model) with family = "binomial" to fit a logistic regression.
+LogitReg <- glm(income~., data = TRAIN,family = binomial)
+
+
+```
+
+# Q11.2 For which variables can we reject the null hypothesis that their coefficients equal zero?
+```{r}
+summary(LogitReg)
+#workclass Never-worked,workclass Without-pay,education Preschool,ative_country Holand-Netherlands,native_country India,native_country Japan,native_country Outlying-US(Guam-USVI-etc),native_country Poland,native_country Puerto-Rico
+```
+
+
+##Q11.3 Score the validation data (predict) using the model. Produce a confusion table and an ROC curve for the scored validation data.
+```{r}
+
+logit.pred <- predict(LogitReg, newdata = TEST)
+
+roc(TEST$income,logit.pred )
+plot(roc(TEST$income,logit.pred ),main='Logit Regresssion')
+A2<- auc(roc(TEST$income,logit.pred ))
+```
+#Q11.4 From the confusion table calculate the following metrics: accuracy, misclassification rate, true positive rate, false positive rate, specificity, precision, and prevalence.
+```{r}
+
+cmlogit <- confusionMatrix(as.factor(ifelse(logit.pred > 0.5, " >50K", " <=50K")),TEST$income)
+cmlogit
+
+
+CFMetricsLogit<- data.frame(matrix(nrow=7,ncol=1))
+rownames(CFMetricsLogit)<- c('accuracy', 'misclassification rate', 'true positive rate', 'false positive rate', 'specificity', 'precision', 'prevalence')
+
+#cm$overall
+CFMetricsLogit[1,1]<- round(cmlogit$overall[1],5) #cmlogit$overall
+CFMetricsLogit[2,1]<- 1-CFMetricsLogit[1,1] #'misclassification rate'
+#tpr = tp / (tp + fn)
+#fpr = fp / (fp + tn)
+tp<- cmlogit$table[1,1]
+fn<- cmlogit$table[1,2]
+fp<- cmlogit$table[2,1]
+tn<- cmlogit$table[2,2]
+CFMetricsLogit[3,1]<- tp / (tp + fn) #tpr
+CFMetricsLogit[4,1]<- fp / (fp + tn) #fpr
+
+
+CFMetricsLogit[5,1]<- cmlogit$byClass[2] #Specificity
+CFMetricsLogit[6,1]<- cmlogit$byClass[5] #precision
+CFMetricsLogit[7,1]<- cmlogit$byClass[8] #prevalence
+
+colnames(CFMetricsLogit)<- c('Metrics')
+CFMetricsLogit
+```
+
+#Tree Model (CART)
+
+#Q12.1 Build a model to predict income > $50K using a classification tree and a random forest with the same training and validation data used for the naïve Bayes and logistic regression models.
+```{r}
+
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+
+#classification tree
+CART<- rpart(income ~ ., data = TRAIN,method='class')
+
+###############################################################################
+
+#Random Forest
+RF <- randomForest(income ~ ., data = TRAIN)
+```
+
+#12.2 Which variables are useful for decision rules?
+```{r}
+
+## variable importance plot for CART
+varImp(CART)
+
+
+###############################################################################
+
+## variable importance plot for RF
+varImp(RF)
+varImpPlot(RF)
+
+
+```
+
+
+#Q12.3 Show a plot of the tree
+```{r}
+prp(CART, type = 2, extra = 4, split.font = 1, varlen = -10)
+
+
+
+```
+
+#Q12.4 Score the validation data (predict) using the model. Produce a confusion table and an ROC curve for the scored validation data.
+```{r}
+CART.pred<- predict(CART, newdata= TEST,type='prob')[,2]
+roc(TEST$income,CART.pred)
+plot(roc(TEST$income,CART.pred ),main='Classification Tree')
+A3<- auc(roc(TEST$income,CART.pred))
+
+```
+
+
+#Q12.5 From the confusion table calculate the following metrics: accuracy, misclassification rate, true positive rate, false positive rate, specificity, precision, and prevalence.
+```{r}
+
+CARTpredict <- predict(CART, newdata= TEST,type='class') 
+
+cmCART <- confusionMatrix(CARTpredict,TEST$income)
+CART
+
+
+CFMetricsCART<- data.frame(matrix(nrow=7,ncol=1))
+rownames(CFMetricsCART)<- c('accuracy', 'misclassification rate', 'true positive rate', 'false positive rate', 'specificity', 'precision', 'prevalence')
+
+#cm$overall
+CFMetricsCART[1,1]<- round(cmCART$overall[1],5) #cmCART$overall
+CFMetricsCART[2,1]<- 1-CFMetricsCART[1,1] #'misclassification rate'
+#tpr = tp / (tp + fn)
+#fpr = fp / (fp + tn)
+tp<- cmCART$table[1,1]
+fn<- cmCART$table[1,2]
+fp<- cmCART$table[2,1]
+tn<- cmCART$table[2,2]
+CFMetricsCART[3,1]<- tp / (tp + fn) #tpr
+CFMetricsCART[4,1]<- fp / (fp + tn) #fpr
+
+CFMetricsCART[5,1]<- cmCART$byClass[2] #Specificity
+CFMetricsCART[6,1]<- cmCART$byClass[5] #precision
+CFMetricsCART[7,1]<- cmCART$byClass[8] #prevalence
+
+colnames(CFMetricsCART)<- c('Metrics')
+CFMetricsCART
+```
+#Random Forest
+```{r}
+#roc and ro plot
+
+RF.pred<- predict(RF, newdata= TEST,type='prob')[,2]
+roc(TEST$income,RF.pred)
+plot(roc(TEST$income,RF.pred ),main='Random Forest')
+A4<- auc(roc(TEST$income,RF.pred))
+
+
+#confusion Matrix
+RFpredict <- predict(RF, newdata= TEST,type='class')
+
+
+cmRF <- confusionMatrix(RFpredict,TEST$income)
+cmRF
+
+
+
+CFMetricsRF<- data.frame(matrix(nrow=7,ncol=1))
+rownames(CFMetricsRF)<- c('accuracy', 'misclassification rate', 'true positive rate', 'false positive rate', 'specificity', 'precision', 'prevalence')
+
+#cm$overall
+CFMetricsRF[1,1]<- round(cmRF$overall[1],5) #cmCART$overall
+CFMetricsRF[2,1]<- 1-CFMetricsRF[1,1] #'misclassification rate'
+#tpr = tp / (tp + fn)
+#fpr = fp / (fp + tn)
+tp<- cmRF$table[1,1]
+fn<- cmRF$table[1,2]
+fp<- cmRF$table[2,1]
+tn<- cmRF$table[2,2]
+CFMetricsRF[3,1]<- tp / (tp + fn) #tpr
+CFMetricsRF[4,1]<- fp / (fp + tn) #fpr
+
+CFMetricsRF[5,1]<- cmRF$byClass[2] #Specificity
+CFMetricsRF[6,1]<- cmRF$byClass[5] #precision
+CFMetricsRF[7,1]<- cmRF$byClass[8] #prevalence
+
+colnames(CFMetricsRF)<- c('Metrics')
+CFMetricsRF
+
+```
+#13 Compare Models
+
+#Q13.1 Compare these metrics between all three models. Which method do you prefer to use to predict income > $50K? Why?
+```{r}
+AUC<-round( c(A1,A2,A3,A4),4)
+CP<- cbind(CFMetricsNB,CFMetricsLogit,CFMetricsCART,CFMetricsRF)
+colnames(CP)<-c('naive-Bayes','Logist Regression','Decision Tree','Random Forest')
+CP['AUC',]<- AUC
+
+CP
+
+
+#We choose the Random Forest since it has highist accuracy and AUC among these models 
+```
